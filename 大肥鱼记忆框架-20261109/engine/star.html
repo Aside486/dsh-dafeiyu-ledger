@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>大肥鱼的记忆星图</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #04070c; color: #cfe9f5;
+    font: 13px/1.6 "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+  #stage { position: fixed; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
+
+  header { position: fixed; top: 0; left: 0; right: 0; padding: 14px 20px; display: flex;
+    align-items: baseline; gap: 14px; pointer-events: none; z-index: 5;
+    background: linear-gradient(180deg, rgba(3,7,12,.92), rgba(3,7,12,0)); }
+  header h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: .08em; color: #bfe9ff; }
+  header .meta { font-size: 12px; color: #6f93a8; }
+  header .meta b { color: #9fd8ef; font-weight: 600; }
+
+  #toolbar { position: fixed; top: 12px; right: 18px; display: flex; gap: 8px; z-index: 6; }
+  #toolbar button { background: rgba(12,26,38,.78); color: #8fc4dc; border: 1px solid rgba(90,170,205,.28);
+    border-radius: 999px; padding: 5px 12px; font-size: 12px; cursor: pointer; backdrop-filter: blur(6px); }
+  #toolbar button:hover { color: #d6f3ff; border-color: rgba(120,210,255,.55); }
+  #toolbar button.on { color: #04121a; background: #6fd3ff; border-color: #6fd3ff; }
+
+  #tip { position: fixed; z-index: 8; max-width: 340px; padding: 9px 12px; border-radius: 10px;
+    background: rgba(6,16,24,.94); border: 1px solid rgba(90,170,205,.35);
+    box-shadow: 0 10px 30px rgba(0,0,0,.55); font-size: 12px; line-height: 1.55;
+    color: #d8eefb; pointer-events: none; opacity: 0; transition: opacity .12s; }
+  #tip.show { opacity: 1; }
+  #tip .k { color: #7fd7ff; font-size: 11px; letter-spacing: .04em; }
+  #tip .m { color: #6f93a8; font-size: 11px; margin-top: 3px; }
+
+  #panel { position: fixed; right: 18px; top: 60px; bottom: 18px; width: 340px; z-index: 7;
+    background: rgba(6,14,21,.9); border: 1px solid rgba(90,170,205,.22); border-radius: 14px;
+    padding: 14px 16px; overflow: auto; display: none; backdrop-filter: blur(8px); }
+  #panel.show { display: block; }
+  #panel h2 { font-size: 12px; margin: 0 0 10px; color: #7fd7ff; letter-spacing: .06em; font-weight: 600; }
+  #panel .body { font-size: 13px; color: #d8eefb; white-space: pre-wrap; }
+  #panel .tags { margin: 10px 0 0; font-size: 11px; color: #6f93a8; }
+  #panel .nb { margin-top: 14px; border-top: 1px solid rgba(90,170,205,.18); padding-top: 10px; }
+  #panel .nb div { font-size: 12px; color: #9fc6d8; padding: 4px 0; cursor: pointer; }
+  #panel .nb div:hover { color: #e6f7ff; }
+  #panel .close { position: absolute; top: 10px; right: 12px; cursor: pointer; color: #5f8397; }
+  #panel .close:hover { color: #cfe9f5; }
+
+  #legend { position: fixed; left: 20px; bottom: 16px; z-index: 5; font-size: 11px; color: #6f93a8;
+    display: flex; gap: 14px; align-items: center; pointer-events: none; }
+  #legend i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+  #hintbar { position: fixed; left: 20px; bottom: 38px; z-index: 5; font-size: 11px; color: #456475; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="graph"></canvas></div>
+
+<header>
+  <h1>大肥鱼的记忆星图</h1>
+  <div class="meta" id="meta">载入中…</div>
+</header>
+
+<div id="toolbar">
+  <button id="btnEdges" class="on">连线</button>
+  <button id="btnSpin" class="on">自转</button>
+  <button id="btnReload">刷新</button>
+</div>
+
+<div id="tip"></div>
+<div id="panel"><span class="close" id="panelClose">×</span><h2>记忆</h2>
+  <div class="body" id="panelBody"></div><div class="tags" id="panelTags"></div>
+  <div class="nb"><h2 style="margin-top:0">同一片星区的记忆</h2><div id="panelNb"></div></div>
+</div>
+
+<div id="legend"><div style="margin-bottom:4px">热竹金·温青·冷灰　|　亮度∝保持度　|　外环=刚被想起</div>
+  <span><i style="background:#ffd166"></i>事实</span>
+  <span><i style="background:#4fd6ff"></i>洞见</span>
+  <span><i style="background:#b18cff"></i>背景</span>
+  <span><i style="background:#ff6b8a"></i>因果</span>
+</div>
+<div id="hintbar">拖拽旋转 · 滚轮缩放 · 悬停读记忆 · 点一下展开</div>
+
+<script>
+(async function () {
+  const canvas = document.getElementById('graph');
+  const ctx = canvas.getContext('2d');
+  const tip = document.getElementById('tip');
+  const panel = document.getElementById('panel');
+
+  const CAT = {
+    fact:       { name: '事实', color: '#ffd166' },
+    insight:    { name: '洞见', color: '#4fd6ff' },
+    context:    { name: '背景', color: '#b18cff' },
+    other:      { name: '其它', color: '#8ad8c0' }
+  };
+  const EDGE = {
+    causal:   { color: '255,107,138', a: 0.55 },
+    semantic: { color: '111,211,255', a: 0.30 },
+    temporal: { color: '150,170,190', a: 0.13 },
+    entity:   { color: '120,200,255', a: 0.10 }
+  };
+
+  let nodes = [], edges = [], byId = new Map();
+  let W = 0, H = 0, DPR = window.devicePixelRatio || 1;
+  let yaw = 0.35, pitch = -0.2, zoom = 1, panX = 0, panY = 0;
+  let dragging = false, moved = 0, lastX = 0, lastY = 0, downOnCanvas = false;
+  let hover = null, selected = null;
+  let showEdges = true, spin = true;
+  const FOCAL = 1100, RADIUS = 1;
+  let stars = [];
+  const SPRITES = {};
+
+  function hexA(hex, a) {
+    const h = hex.replace('#', '');
+    return `rgba(${parseInt(h.slice(0,2),16)},${parseInt(h.slice(2,4),16)},${parseInt(h.slice(4,6),16)},${a})`;
+  }
+  function spriteFor(color) {
+    if (SPRITES[color]) return SPRITES[color];
+    const s = document.createElement('canvas'); s.width = s.height = 64;
+    const c = s.getContext('2d');
+    const g = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, 'rgba(255,255,255,.95)');
+    g.addColorStop(.14, hexA(color, .9));
+    g.addColorStop(.4, hexA(color, .32));
+    g.addColorStop(.72, hexA(color, .07));
+    g.addColorStop(1, hexA(color, 0));
+    c.fillStyle = g; c.beginPath(); c.arc(32, 32, 32, 0, Math.PI * 2); c.fill();
+    SPRITES[color] = s; return s;
+  }
+
+  function makeStars() {
+    stars = [];
+    const n = Math.min(320, Math.round(W * H / 4200));
+    for (let i = 0; i < n; i++) {
+      stars.push({ x: Math.random() * W, y: Math.random() * H,
+        r: Math.random() < .86 ? .7 : 1.5, a: .12 + Math.random() * .42,
+        ph: Math.random() * Math.PI * 2, sp: .4 + Math.random() });
+    }
+  }
+
+  function resize() {
+    W = canvas.clientWidth; H = canvas.clientHeight;
+    canvas.width = W * DPR; canvas.height = H * DPR;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    makeStars();
+  }
+
+  function fibonacciDir(i, n) {
+    const y = 1 - (2 * (i + .5)) / n;
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    const th = i * Math.PI * (3 - Math.sqrt(5));
+    return [Math.cos(th) * r, y, Math.sin(th) * r];
+  }
+
+  function layout() {
+    // 按类别分到三个极区，避免全糊成一团：事实→上，洞见→赤道，背景→下
+    const groups = { fact: [], insight: [], context: [], other: [] };
+    nodes.forEach(n => (groups[n.cat] || groups.other).push(n));
+    const dirs = { fact: [0, 1, 0], insight: [1, .1, 0], context: [0, -1, 0], other: [0, 0, 1] };
+    Object.keys(groups).forEach(cat => {
+      const arr = groups[cat];
+      const base = dirs[cat] || dirs.other;
+      arr.forEach((n, i) => {
+        const d = fibonacciDir(i, Math.max(1, arr.length));
+        // 把该组铺在一个锥形区域里（方向固定 + 抖动），再归一化到球面
+        const v = [base[0] * 2.2 + d[0] * 1.15, base[1] * 2.2 + d[1] * 1.15, base[2] * 2.2 + d[2] * 1.15];
+        const len = Math.hypot(...v) || 1;
+        n.pos = [v[0] / len, v[1] / len, v[2] / len];
+      });
+    });
+  }
+
+  function rotate([x, y, z]) {
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const cp = Math.cos(pitch), sp = Math.sin(pitch);
+    let x1 = x * cy - z * sy, z1 = x * sy + z * cy;
+    let y1 = y * cp - z1 * sp, z2 = y * sp + z1 * cp;
+    return [x1, y1, z2];
+  }
+
+  function project(n) {
+    const [x, y, z] = rotate(n.pos);
+    const R = Math.min(W, H) * 0.36 * zoom;
+    const depth = 1 + z * 0.35;
+    const px = W / 2 + panX + (x * R) / depth;
+    const py = H / 2 + panY + (y * R) / depth;
+    const st = (n.strength == null ? 1 : n.strength);
+    return { x: px, y: py, z, r: (2.6 + (n.importance || .5) * 4.8) * (0.55 + 0.65 * st) * (0.85 + (z + 1) * 0.12) };
+  }
+
+  function drawStars(t) {
+    for (const s of stars) {
+      const tw = s.a * (0.7 + 0.3 * Math.sin(t / 900 * s.sp + s.ph));
+      ctx.fillStyle = `rgba(190,225,245,${tw.toFixed(3)})`;
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  function nearest(mx, my) {
+    let best = null, bd = 16 * 16;
+    for (const n of nodes) {
+      const p = project(n);
+      const d = (p.x - mx) ** 2 + (p.y - my) ** 2;
+      if (d < bd) { bd = d; best = n; }
+    }
+    return best;
+  }
+
+  function frame(t) {
+    ctx.clearRect(0, 0, W, H);
+    // 星云底色
+    const bg = ctx.createRadialGradient(W * .5, H * .46, 0, W * .5, H * .46, Math.max(W, H) * .75);
+    bg.addColorStop(0, 'rgba(12,44,64,.55)');
+    bg.addColorStop(.55, 'rgba(5,14,22,.9)');
+    bg.addColorStop(1, '#04070c');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    drawStars(t);
+
+    if (spin && !dragging && !selected) yaw += 0.0022;
+
+    const pos = new Map();
+    for (const n of nodes) pos.set(n.id, project(n));
+
+    // 连线（先画，压在星点下面）
+    if (showEdges) {
+      for (const e of edges) {
+        const a = pos.get(e.a), b = pos.get(e.b);
+        if (!a || !b) continue;
+        const st = EDGE[e.type] || EDGE.entity;
+        const dim = selected && selected.id !== e.a && selected.id !== e.b;
+        const alpha = st.a * (dim ? .25 : 1) * (0.55 + ((a.z + b.z) / 2 + 1) * .22);
+        if (alpha < .015) continue;
+        ctx.strokeStyle = `rgba(${st.color},${alpha.toFixed(3)})`;
+        ctx.lineWidth = e.type === 'causal' ? 1.4 : 0.8;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+    }
+
+    // 节点：按深度排序，远的先画
+    const order = nodes.slice().sort((m, n) => pos.get(m.id).z - pos.get(n.id).z);
+    for (const n of order) {
+      const p = pos.get(n.id);
+      const col = (CAT[n.cat] || CAT.other).color;
+      const isSel = selected && selected.id === n.id;
+      const isHov = hover && hover.id === n.id;
+      const dim = selected && !isSel && !(selected.nb || []).includes(n.id);
+      const layer = n.layer || 'warm';
+      const hot = layer === 'hot', cold = layer === 'cold';
+      const baseA = dim ? .18 : (hot ? .95 : cold ? .40 : .72) * (0.85 + (p.z + 1) * 0.1);
+      const scale = (isSel ? 2.2 : isHov ? 1.7 : 1) * 1;
+      const size = Math.max(10, p.r * 7 * scale);
+      const sp = spriteFor(col);
+      ctx.globalAlpha = Math.min(1, baseA);
+      ctx.drawImage(sp, p.x - size / 2, p.y - size / 2, size, size);
+      ctx.globalAlpha = 1;
+      // 核心亮点
+      ctx.fillStyle = `rgba(255,255,255,${(dim ? .18 : (cold ? .40 : .90))})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1, p.r * 0.5), 0, Math.PI * 2); ctx.fill();
+      // 层环：热=金 / 冷=灰 / 温=青
+      const ringCol = hot ? '255,209,102' : cold ? '108,122,134' : '79,214,255';
+      if (!dim) {
+        ctx.strokeStyle = `rgba(${ringCol},${(cold?0.30:0.55)})`; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(p.x, p.y, size * .58, 0, Math.PI * 2); ctx.stroke();
+      }
+      // 刚被想起：一圈呼吸光
+      if (n.recent && !dim) {
+        const pr = size * (.62 + 0.06 * Math.sin(t / 500));
+        ctx.strokeStyle = 'rgba(255,233,168,.52)'; ctx.lineWidth = 1.1;
+        ctx.beginPath(); ctx.arc(p.x, p.y, pr, 0, Math.PI * 2); ctx.stroke();
+      }
+      if (isSel || isHov) {
+        ctx.strokeStyle = hexA(col, .8); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(p.x, p.y, size * .42, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ── 交互 ──
+  canvas.addEventListener('pointerdown', (e) => {
+    dragging = true; moved = 0; downOnCanvas = true; lastX = e.clientX; lastY = e.clientY;
+    canvas.classList.add('dragging'); canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (dragging) {
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY; moved += Math.abs(dx) + Math.abs(dy);
+      yaw += dx * 0.006; pitch = Math.max(-1.25, Math.min(1.25, pitch + dy * 0.005));
+    } else {
+      const n = nearest(e.clientX, e.clientY);
+      hover = n;
+      if (n) {
+        tip.innerHTML = `<div class="k">${(CAT[n.cat] || CAT.other).name} · 重要度 ${(n.importance).toFixed(2)}</div>
+          <div>${escapeHtml(n.short)}</div><div class="m">${n.date || ''}${n.tags ? ' · ' + escapeHtml(n.tags) : ''}</div>`;
+        tip.style.left = Math.min(W - 360, e.clientX + 16) + 'px';
+        tip.style.top = Math.max(60, e.clientY - 10) + 'px';
+        tip.classList.add('show');
+      } else tip.classList.remove('show');
+    }
+  });
+  canvas.addEventListener('pointerup', (e) => {
+    dragging = false; downOnCanvas = false; canvas.classList.remove('dragging');
+    if (moved < 5 && downOnCanvas) {
+      const n = nearest(e.clientX, e.clientY);
+      if (n) select(n); else clearSelect();
+    }
+  });
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    zoom = Math.max(0.55, Math.min(2.6, zoom * (e.deltaY > 0 ? 0.92 : 1.08)));
+  }, { passive: false });
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function nbOf(n) {
+    const out = new Set();
+    for (const e of edges) {
+      if (e.a === n.id) out.add(e.b);
+      else if (e.b === n.id) out.add(e.a);
+    }
+    return [...out];
+  }
+
+  function select(n) {
+    selected = n; n.nb = nbOf(n);
+    panel.classList.add('show');
+    document.getElementById('panelBody').textContent = n.text;
+    document.getElementById('panelTags').textContent =
+      `${(CAT[n.cat] || CAT.other).name} · 重要度 ${n.importance.toFixed(2)} · ${({hot:'热',warm:'温',cold:'冷·快忘了'}[n.layer] || '温')} · 保持 ${(n.strength || 1).toFixed(2)} · ${n.date || ''}`;
+    const nb = document.getElementById('panelNb');
+    nb.innerHTML = '';
+    n.nb.slice(0, 8).forEach(id => {
+      const m = byId.get(id); if (!m) return;
+      const d = document.createElement('div');
+      d.textContent = '· ' + m.short;
+      d.onclick = () => select(m);
+      nb.appendChild(d);
+    });
+    if (!n.nb.length) nb.innerHTML = '<div style="color:#4a6a7c">还没有连到别的记忆</div>';
+  }
+  function clearSelect() { selected = null; panel.classList.remove('show'); }
+  document.getElementById('panelClose').onclick = clearSelect;
+
+  document.getElementById('btnEdges').onclick = (e) => {
+    showEdges = !showEdges; e.target.classList.toggle('on', showEdges);
+  };
+  document.getElementById('btnSpin').onclick = (e) => {
+    spin = !spin; e.target.classList.toggle('on', spin);
+  };
+  document.getElementById('btnReload').onclick = () => load();
+
+  async function load() {
+    const r = await fetch('/graph');
+    const j = await r.json();
+    nodes = j.nodes.map(n => ({ ...n, cat: CAT[n.category] ? n.category : 'other', pos: [0, 0, 0] }));
+    byId = new Map(nodes.map(n => [n.id, n]));
+    edges = j.edges.filter(e => byId.has(e.a) && byId.has(e.b));
+    layout();
+    const cnt = {};
+    nodes.forEach(n => cnt[n.cat] = (cnt[n.cat] || 0) + 1);
+    document.getElementById('meta').innerHTML =
+      `<b>${nodes.length}</b> 条记忆 · <b>${edges.length}</b> 条连线 · ` +
+      `<b>${cnt.fact || 0}</b> 事实 / <b>${cnt.insight || 0}</b> 洞见 / <b>${cnt.context || 0}</b> 背景`;
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+  await load();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

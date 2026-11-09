@@ -1,0 +1,57 @@
+{
+  "port": 3132,
+  "loopSec": 30,
+  "budget": {
+    "maxTokens": 350,
+    "maxChars": 520,
+    "maxItems": 3
+  },
+  "inject": {
+    "enabled": true,
+    "keys": [],
+    "injectGroups": true,
+    "header": "【你记得的事】相关才提，别照念、别一次全说",
+    "privateK": 3,
+    "privateMin": 0.45,
+    "groupK": 2,
+    "groupMin": 0.5,
+    "streamEnabled": true,
+    "streamLines": 6,
+    "streamChars": 120
+  },
+  "sources": {
+    "mnemon": true,
+    "diary": true,
+    "notes": true,
+    "desk": true
+  },
+  "weights": {
+    "keyword": 0.62,
+    "importance": 0.22,
+    "recency": 0.16
+  },
+  "recencyHalfLifeDays": 30,
+  "dedupe": 0.82,
+  "privateMin": 0.45,
+  "minKeyword": 0.45,
+  "minHits": 2,
+  "minQueryBigrams": 2,
+  "minSemantic": 0.7,
+  "embed": {
+    "enabled": false
+  },
+  "retention": {
+    "enabled": true,
+    "baseTauDays": 12,
+    "hot": 0.6,
+    "warm": 0.28,
+    "reinforce": 0.12,
+    "reinforceThrottleSec": 21600,
+    "spread": {
+      "enabled": true,
+      "seeds": 5,
+      "decay": 0.45,
+      "minActivation": 0.18
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "socialV2": {
+    "contextBudgetTokens": 100000,
+    "contextRotateTurns": 60,
+    "memoryBrain": {
+      "enabled": true,
+      "port": 3132,
+      "maxChars": 900,
+      "log": true
+    }
+  }
+}
